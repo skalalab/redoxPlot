@@ -16,6 +16,7 @@ vars = [name.replace("_mean", "") for name in vars_colnames[:-1]] + ["rr"]
 # generate colors for vars and cell lines
 cm = plt.get_cmap('tab20')
 var_colors = {var: cm(i) for i, var in enumerate(vars)}
+cm = plt.get_cmap('tab10')
 cell_line_colors = {cell_line: cm(i) for i, cell_line in enumerate(unique_values_dict[column_names[0]])}
 
 # Define the UI layout
@@ -51,7 +52,7 @@ app_ui = ui.page_navbar(
                     ui.output_plot("plotTreatmentsXcontrol"),
 
                 ))),          
-            ui.nav_panel("Volcano Plot?", "To be continued..."),
+            ui.nav_panel("Volcano Plot", "To be continued..."),
             id="tab",)
     ),     
     ui.nav_panel("2", "Page B content"),  
