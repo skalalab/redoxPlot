@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from htmltools import HTML
 from pathlib import Path
+from shinywidgets import output_widget, render_widget  
+import dash_bio
 
 grouped_df = pd.read_csv(Path(__file__).parent / "grouped_df.csv")
 grouped_df = grouped_df.rename(columns={grouped_df.columns[0]: 'id'})
@@ -54,11 +56,14 @@ app_ui = ui.page_navbar(
                 ), ui.card(ui.card_header(HTML("<h3>Plot percent change for treatments against control</h3>")),
                 ui.output_plot("plotTreatmentsXcontrol", width="100%", height="60%"), height="600px"),
                 )),          
-            ui.nav_panel("Volcano Plot", ),
+            ui.nav_panel("Volcano Plot", ui.layout_sidebar(
+                ui.sidebar(
+
+                ), ui.card(output_widget("volcanoPlot"), height="600px"))),
             id="tab",)
     ),     
-    ui.nav_panel("2", "Page B content"),  
-    ui.nav_panel("3", "Page C content"),  
+    ui.nav_panel("2", "Page 2"),  
+    ui.nav_panel("3", "Page 3 content"),  
     title="Redox Plots",  
     id="page",  
     fillable = True, 
@@ -67,6 +72,17 @@ app_ui = ui.page_navbar(
 
 # Define the server logic
 def server(input, output, session):
+    
+    @render_widget 
+    def volcanoPlot():
+        df = pd.read_csv('https://raw.githubusercontent.com/plotly/dash-bio-docs-files/master/volcano_data1.csv')
+        q = dash_bio.VolcanoPlot(
+        dataframe=df,
+        point_size=10,
+        effect_size_line_width=4,
+        genomewideline_width=2)
+        return q
+    
     # Reactive expression to filter the DataFrame based on the inputs
     @render.data_frame
     def filtered_table():
@@ -224,7 +240,6 @@ def server(input, output, session):
         else: 
             print("illegal combination")
 
-
     second_var = reactive.value("None")
     second_cell_line = reactive.value("None")
    
@@ -237,8 +252,6 @@ def server(input, output, session):
     @reactive.event(input["2nd_cellline_switch"], input["select_2nd_cell_line"])
     def _():
         second_cell_line.set(input["select_2nd_cell_line"] if input["2nd_cellline_switch"]() else "None")
-
-
 
     @render.plot
     def plotTreatmentsXcontrol():
@@ -260,7 +273,7 @@ def server(input, output, session):
 
         num_plots = 1 if (var2 == "None" and cell_line2 == "None") else 2
         fig, axes = plt.subplots(1, num_plots, figsize=(10/num_plots, 5))
-       # plt.title("% Change vs Control in " + r"$\bf{" +experiment+ "}$" + " across treatments", fontsize=15)
+
         for i in range(0, num_plots):
             ax = axes if num_plots == 1 else axes[i] 
            
@@ -326,17 +339,12 @@ def server(input, output, session):
                     ax.set_title(f"{measures[0]}", fontsize=14, fontweight='bold')
             else:
                 ax.set_title(f"{g2}", fontsize=14, fontweight='bold')
-        handles, labels = axes.get_legend_handles_labels() if num_plots == 1 else axes[0].get_legend_handles_labels()
 
          # Set common y-axis label
         fig.text(0, 0.5, '% change VS control', va='center', rotation='vertical', fontsize=12, fontweight='bold')
        
-        # fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1, 1), ncol=2, fontsize=12)
-         # Set a single legend for the entire figure
-        # fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.05, 1), fontsize=12)
         fig.subplots_adjust(right=0.9, wspace=0.1)
         return fig
-
 
 # Create the Shiny app
 app = App(app_ui, server)
