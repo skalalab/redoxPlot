@@ -40,19 +40,21 @@ app_ui = ui.page_navbar(
                    ui.output_data_frame("filtered_table"),
                 )),
             ui.nav_panel("Plots", ui.layout_sidebar(
-                ui.panel_sidebar(   
+                ui.sidebar(   
                     ui.layout_columns(
-                        ui.card(ui.input_selectize("select_experiment", "Select experiment", unique_values_dict[column_names[3]]), height="250px"),
-                        ui.card(ui.input_selectize("select_cell_line", "Select cell line(s)", ["All cell lines"] + unique_values_dict[column_names[0]], multiple=True), height="180px"),
-                        ui.card(ui.input_selectize("select_var", "Select measure(s)", ["All measures"] + vars, multiple=True), height="250px"),
-                        col_widths=12
-                    ),
-                ), ui.panel_main(
-                    HTML("<h2>Plot percent change for treatments against control</h2>"),
-                    ui.output_plot("plotTreatmentsXcontrol"),
-
-                ))),          
-            ui.nav_panel("Volcano Plot", "To be continued..."),
+                        ui.card(ui.input_selectize("select_experiment", "Select experiment", unique_values_dict[column_names[3]]), height="200px")
+                        , col_widths=12),
+                    ui.layout_columns(
+                        ui.card(ui.input_selectize("select_cell_line", "Select cell line(s)", ["All cell lines"] + unique_values_dict[column_names[0]], multiple=True), height="200px"),
+                        ui.output_ui("add_2nd_cellline"), col_widths=(6,6)),
+                    ui.layout_columns(
+                        ui.card(ui.input_selectize("select_var", "Select measure(s)", ["All measures"] + vars, multiple=True), height="200px"),
+                        ui.output_ui("add_2nd_measure"), col_widths=(6,6)),
+                        ui.output_ui("turn_on_2nd"), width=400,
+                ), ui.card(ui.card_header(HTML("<h3>Plot percent change for treatments against control</h3>")),
+                ui.output_plot("plotTreatmentsXcontrol", width="100%", height="60%"), height="600px"),
+                )),          
+            ui.nav_panel("Volcano Plot", ),
             id="tab",)
     ),     
     ui.nav_panel("2", "Page B content"),  
@@ -73,9 +75,67 @@ def server(input, output, session):
             if "All" not in input[col]():
                 filtered_df = filtered_df[filtered_df[col].isin(input[col]())]
         return filtered_df
-    
+        
+    second_var_switch = reactive.value(False)
+    second_cell_line_switch = reactive.value(False)
+
     @reactive.Effect
-   
+    @reactive.event(input["2nd_cellline_switch"])
+    def _():
+        second_cell_line_switch.set(input["2nd_cellline_switch"]())
+
+    @reactive.Effect
+    @reactive.event(input["2nd_measure_switch"])
+    def _():
+        second_var_switch.set(input["2nd_measure_switch"]())
+
+    @render.ui
+    def turn_on_2nd():
+        selected_cell_line = input["select_cell_line"]()
+        selected_measure = input["select_var"]()
+        one_cell_line = (len(selected_cell_line) == 1 and "All cell lines" not in selected_cell_line)
+        one_measure = (len(selected_measure) == 1 and "All measures" not in selected_measure)
+        all_cell_lines = (len(selected_cell_line) == 1 and "All cell lines" in selected_cell_line)
+        all_measures = (len(selected_measure) == 1 and "All measures" in selected_measure)
+        more_than_one_cell_line = (len(selected_cell_line) > 1)
+        more_than_one_measures = (len(selected_measure) > 1)
+        if one_cell_line and (more_than_one_measures or all_measures):
+            return ui.input_switch("2nd_cellline_switch", "Do you want to plot another cell line?", False)
+        elif one_measure and (more_than_one_cell_line or all_cell_lines):
+            return ui.input_switch("2nd_measure_switch", "Do you want to plot another measure?", False)
+        else: 
+            second_var.set("None")
+            second_cell_line.set("None")
+            second_var_switch.set(False)
+            second_cell_line_switch.set(False)
+            
+        return None   
+     
+    @render.ui
+    def add_2nd_cellline():      
+        if input["2nd_cellline_switch"]() and second_cell_line_switch():           
+            selected_cell_line = input["select_cell_line"]()
+            if len(selected_cell_line) < 1:
+                return None
+            choices = unique_values_dict[column_names[0]].copy()
+            choices.remove(selected_cell_line[0])
+            return ui.card(ui.input_selectize("select_2nd_cell_line", "Select a 2nd cell line", choices, multiple=False), height="200px")      
+        else:
+            return None
+        
+    @render.ui
+    def add_2nd_measure():
+        if input["2nd_measure_switch"]() and second_var_switch():
+            selected_measure = input["select_var"]()
+            if len(selected_measure) < 1:
+                return None
+            choices = vars.copy()
+            choices.remove(selected_measure[0])
+            return ui.card(ui.input_selectize("select_2nd_var", "Select a 2nd measure", choices, multiple=False), height="200px")
+        else:
+            return None
+    
+    @reactive.Effect   
     def _():
         for col in column_names[:7]:
             if col == "treatment":
@@ -133,8 +193,8 @@ def server(input, output, session):
                 ui.update_selectize(id="select_var", label="You have chosen all measures", choices=selected_measure, selected=selected_measure)
                 ui.update_selectize(id="select_cell_line", label="Select cell line(s)", choices=unique_values_dict[column_names[0]])                
             elif more_than_one_measures:
-                # print("cell line empty, more than one measures")
-                ui.update_selectize(id="select_cell_line", label="You can only choose 1 cell line now. If you want other cell lines, please select only 1 measure.", choices=unique_values_dict[column_names[0]])
+              #  print("cell line empty, more than one measures")            
+                ui.update_selectize(id="select_cell_line", label="Select cell line(s).", choices=unique_values_dict[column_names[0]])
         elif measure_empty:
             if one_cell_line:
                 # print("measure empty, one cell line")
@@ -146,29 +206,48 @@ def server(input, output, session):
                 ui.update_selectize(id="select_var", label="Select measure(s)", choices=vars)
             elif more_than_one_cell_line:
                 # print("measure empty, more than one cell line")
-                ui.update_selectize(id="select_var", label="You can only choose 1 measure now. If you want other measures, please select only 1 cell line.", choices=vars)
+                ui.update_selectize(id="select_var", label="Select measure(s)", choices=vars)
         elif one_cell_line and one_measure:
             # print("one cell line, one measure")
             ui.update_selectize(id="select_cell_line", label="Select cell line(s)", choices=unique_values_dict[column_names[0]], selected=selected_cell_line)
             ui.update_selectize(id="select_var", label="Select measure(s)", choices=vars, selected=selected_measure)
         elif one_cell_line and (all_measures or more_than_one_measures):
             # print("one cell line, more than one measures")
-            ui.update_selectize(id="select_cell_line", label="You have chosen 1 cell line. If you want other cell lines, please select only 1 measure.", choices=selected_cell_line, selected=selected_cell_line)
+            ui.update_selectize(id="select_cell_line", label="If you want > 1 cell lines, please select only 1 measure or add another cell line below.", choices=selected_cell_line, selected=selected_cell_line)
             if all_measures:
                 ui.update_selectize(id="select_var", label="You have chosen all measures.", choices=selected_measure, selected=selected_measure)
         elif one_measure and (all_cell_lines or more_than_one_cell_line):
             # print("one measure, more than one cell lines")
-            ui.update_selectize(id="select_var", label="You have chosen 1 measure. If you want other measures, please select only 1 cell line.", choices=selected_measure, selected=selected_measure)
+            ui.update_selectize(id="select_var", label="If you want > 1 measures, please select only 1 cell line or add another measure below.", choices=selected_measure, selected=selected_measure)
             if all_cell_lines:
                 ui.update_selectize(id="select_cell_line", label="You have chosen all cell lines.", choices=selected_cell_line, selected=selected_cell_line)
         else: 
             print("illegal combination")
 
+
+    second_var = reactive.value("None")
+    second_cell_line = reactive.value("None")
+   
+    @reactive.Effect
+    @reactive.event(input["2nd_measure_switch"], input["select_2nd_var"])
+    def _():
+        second_var.set(input["select_2nd_var"] if input["2nd_measure_switch"]() else "None")
+    
+    @reactive.Effect
+    @reactive.event(input["2nd_cellline_switch"], input["select_2nd_cell_line"])
+    def _():
+        second_cell_line.set(input["select_2nd_cell_line"] if input["2nd_cellline_switch"]() else "None")
+
+
+
     @render.plot
     def plotTreatmentsXcontrol():
         experiment = input["select_experiment"]()
         cell_lines = input["select_cell_line"]()
-        measures = input["select_var"]()    
+        measures = input["select_var"]() 
+        var2 = second_var()
+        cell_line2 = second_cell_line()
+        
         if experiment:
             treatments = experiments_treatment_dict[experiment]
             treatments = [t for t in treatments if "control" not in t]
@@ -178,59 +257,86 @@ def server(input, output, session):
             measures = vars
         if (len(measures) > 1 and len(cell_lines) > 1) or len(measures) < 1 or len(cell_lines) < 1:
             return None
-              
-        fig, ax = plt.subplots(1,1)
-        ax.set_title("% Change vs Control in " + r"$\bf{" +experiment+ "}$" + " across treatments", fontsize=15)
-        if len(measures) > 1:
-            ys = measures
-            isY = "measures"
-        else:
-            ys = cell_lines
-            isY = "cell_lines"
-        y_dict = {}
-        for y in ys:
-            y_dict[y] = ([], []) # the first list is the measure, the second list is the error (se)
-            for treatment in treatments:
-                if isY == "measures":
-                    row = grouped_df[(grouped_df["experiment"] == experiment) & (grouped_df["treatment"] == treatment) & (grouped_df["cell_line"] == cell_lines[0])]
-                    if len(row) > 1 or len(row) == 0:
-                        value = np.nan
-                        error = np.nan
-                    else:
-                        value = float(row[vars_colnames[vars.index(y)]].iloc[0])
-                        error = float(row[vars_colnames[vars.index(y)].replace("_mean", "_se")].iloc[0])
-                    y_dict[y][0].append(value)
-                    y_dict[y][1].append(error)
-                else:
-                    row = grouped_df[(grouped_df["experiment"] == experiment) & (grouped_df["treatment"] == treatment) & (grouped_df["cell_line"] == y)]
-                    if len(row) > 1 or len(row) == 0:
-                        value = np.nan
-                        error = np.nan
-                    else:
-                        value = float(row[vars_colnames[vars.index(measures[0])]].iloc[0])
-                        error = float(row[vars_colnames[vars.index(measures[0])].replace("_mean", "_se")].iloc[0])
-                    y_dict[y][0].append(value)
-                    y_dict[y][1].append(error)
-        
-        # plot the data
-        for y_name, (values, errors) in y_dict.items():
-            # Plot each measure with error bars
-            if isY == "measures":
-                ax.errorbar(treatments, values, yerr=errors, fmt='o', label=y_name, color=var_colors[y_name])
-            else:
-                ax.errorbar(treatments, values, yerr=errors, fmt='o', label=y_name, color=cell_line_colors[y_name])
-            # ax.errorbar(treatments, values, yerr=errors, fmt='o', label=y_name)
-           
-        ax.axhline(y=100, color='gray', linestyle='-', label='control')
-        ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1), fontsize=12)
-        plt.subplots_adjust(right=0.8)
-        # Customization
-        ax.set_xlabel('Treatments', fontsize=14, fontweight='bold')
-        ax.set_ylabel('% change VS control', fontsize=14, fontweight='bold')
-        ax.tick_params(axis='x', labelsize=10)  
-        ax.tick_params(axis='y', labelsize=12)  
 
+        num_plots = 1 if (var2 == "None" and cell_line2 == "None") else 2
+        fig, axes = plt.subplots(1, num_plots, figsize=(10/num_plots, 5))
+       # plt.title("% Change vs Control in " + r"$\bf{" +experiment+ "}$" + " across treatments", fontsize=15)
+        for i in range(0, num_plots):
+            ax = axes if num_plots == 1 else axes[i] 
+           
+            if i == 1: # plot the 2nd graph:
+                g2 = var2() if var2 != "None" else cell_line2()
+                print(g2)
+
+            if len(measures) > 1:
+                ys = measures
+                isY = "measures"
+            else:
+                ys = cell_lines
+                isY = "cell_lines"
+            y_dict = {}
+            for y in ys:
+                y_dict[y] = ([], []) # the first list is the measure, the second list is the error (se)
+                for treatment in treatments:
+                    if isY == "measures":
+                        cellline = cell_lines[0] if i == 0 else g2
+                        row = grouped_df[(grouped_df["experiment"] == experiment) & (grouped_df["treatment"] == treatment) & (grouped_df["cell_line"] == cellline)]
+                        if len(row) > 1 or len(row) == 0:
+                            value = np.nan
+                            error = np.nan
+                        else:
+                            value = float(row[vars_colnames[vars.index(y)]].iloc[0])
+                            error = float(row[vars_colnames[vars.index(y)].replace("_mean", "_se")].iloc[0])
+                        y_dict[y][0].append(value)
+                        y_dict[y][1].append(error)
+                    else:
+                        row = grouped_df[(grouped_df["experiment"] == experiment) & (grouped_df["treatment"] == treatment) & (grouped_df["cell_line"] == y)]
+                        if len(row) > 1 or len(row) == 0:
+                            value = np.nan
+                            error = np.nan
+                        else:
+                            measure = measures[0] if i == 0 else g2
+                            value = float(row[vars_colnames[vars.index(measure)]].iloc[0])
+                            error = float(row[vars_colnames[vars.index(measure)].replace("_mean", "_se")].iloc[0])
+                        y_dict[y][0].append(value)
+                        y_dict[y][1].append(error)
+            
+            # plot the data
+            for y_name, (values, errors) in y_dict.items():
+                # Plot each measure with error bars
+                if isY == "measures":
+                    ax.errorbar(treatments, values, yerr=errors, fmt='o', label=y_name, color=var_colors[y_name])
+                else:
+                    ax.errorbar(treatments, values, yerr=errors, fmt='o', label=y_name, color=cell_line_colors[y_name])
+                # ax.errorbar(treatments, values, yerr=errors, fmt='o', label=y_name)
+            
+            ax.axhline(y=100, color='gray', linestyle='-', label='control')
+        
+            if i == 0:
+                ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1), fontsize=10)
+           
+            # Customization
+            ax.set_xlabel('Treatments', fontsize=14, fontweight='bold')
+            ax.tick_params(axis='x', labelsize=8)  
+            ax.tick_params(axis='y', labelsize=10)
+            if (i == 0):
+                if isY == "measures":
+                    ax.set_title(f"{cell_lines[0]}", fontsize=14, fontweight='bold')
+                else:
+                    ax.set_title(f"{measures[0]}", fontsize=14, fontweight='bold')
+            else:
+                ax.set_title(f"{g2}", fontsize=14, fontweight='bold')
+        handles, labels = axes.get_legend_handles_labels() if num_plots == 1 else axes[0].get_legend_handles_labels()
+
+         # Set common y-axis label
+        fig.text(0, 0.5, '% change VS control', va='center', rotation='vertical', fontsize=12, fontweight='bold')
+       
+        # fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1, 1), ncol=2, fontsize=12)
+         # Set a single legend for the entire figure
+        # fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.05, 1), fontsize=12)
+        fig.subplots_adjust(right=0.9, wspace=0.1)
         return fig
+
 
 # Create the Shiny app
 app = App(app_ui, server)
