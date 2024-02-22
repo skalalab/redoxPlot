@@ -3,7 +3,7 @@
 ## Visualizations
 
 ### Installation 
-- See *requirements.txt* for dependencies. Main ones: 
+- Main dependencies: 
     - shiny, shinylive, matplotlib, pandas
 
 ### Deployment
