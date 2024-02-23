@@ -4,7 +4,7 @@
 
 ### Installation 
 - Main dependencies: 
-    - shiny, shinylive, matplotlib, pandas
+    - shiny, shinylive, matplotlib, pandas, plotly
 
 ### Deployment
 - Use `shinylive export . docs  --full-shinylive` to deploy the shiny app
@@ -13,5 +13,5 @@
 
 
 # Update 
-- now it is deployed on [redoxPlot](https://allanware.shinyapps.io/redoxplot/)
-    - shinylive uses pyodide which does not have the dash_bio package pre-included. I haven't figured out how to include it myself. Long story short, the shinylive option is off. 
+- now it is also deployed on [redoxPlot](https://allanware.shinyapps.io/redoxplot/)
+    - shinylive uses pyodide which does not have the dash_bio package pre-included. I haven't figured out how to include it myself. 

@@ -5,7 +5,8 @@ import numpy as np
 from htmltools import HTML
 from pathlib import Path
 from shinywidgets import output_widget, render_widget  
-import dash_bio
+# import dash_bio
+import plotly.graph_objects as go
 
 grouped_df = pd.read_csv(Path(__file__).parent / "grouped_df.csv")
 grouped_df = grouped_df.rename(columns={grouped_df.columns[0]: 'id'})
@@ -59,7 +60,7 @@ app_ui = ui.page_navbar(
             ui.nav_panel("Volcano Plot", ui.layout_sidebar(
                 ui.sidebar(
 
-                ), ui.card(output_widget("volcanoPlot"), height="600px"))),
+                ),)),
             id="tab",)
     ),     
     ui.nav_panel("2", "Page 2"),  
@@ -73,15 +74,6 @@ app_ui = ui.page_navbar(
 # Define the server logic
 def server(input, output, session):
     
-    @render_widget 
-    def volcanoPlot():
-        df = pd.read_csv('https://raw.githubusercontent.com/plotly/dash-bio-docs-files/master/volcano_data1.csv')
-        q = dash_bio.VolcanoPlot(
-        dataframe=df,
-        point_size=10,
-        effect_size_line_width=4,
-        genomewideline_width=2)
-        return q
     
     # Reactive expression to filter the DataFrame based on the inputs
     @render.data_frame
