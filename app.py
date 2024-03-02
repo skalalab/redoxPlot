@@ -7,9 +7,12 @@ from pathlib import Path
 from shinywidgets import output_widget, render_widget  
 # import dash_bio
 import plotly.graph_objects as go
+import plotly.express as px
 
 grouped_df = pd.read_csv(Path(__file__).parent / "grouped_df.csv")
 grouped_df = grouped_df.rename(columns={grouped_df.columns[0]: 'id'})
+grouped_df_norm =  pd.read_csv(Path(__file__).parent / "grouped_norm.csv")
+volcano_df = pd.read_csv(Path(__file__).parent / "volcano.csv")
 column_names = grouped_df.columns.tolist()[1:8]
 unique_values_dict = {col: grouped_df[col].unique().tolist() for col in column_names}
 experiments_treatment_dict = {name: group["treatment"].tolist() for name, group in grouped_df.groupby("experiment")}
@@ -58,13 +61,17 @@ app_ui = ui.page_navbar(
                 ui.output_plot("plotTreatmentsXcontrol", width="100%", height="60%"), height="600px"),
                 )),          
             ui.nav_panel("Volcano Plot", ui.layout_sidebar(
-                ui.sidebar(
-
-                ),)),
+                ui.sidebar(ui.layout_columns(
+                        ui.card(ui.input_selectize("select_experiment_v", "Select experiment", unique_values_dict[column_names[3]], multiple=False), height="200px"),
+                        ui.card(ui.input_selectize("select_var_v", "Select measure(s)", vars, multiple=False), height="150px"), 
+                        ui.card(ui.input_numeric("log2fc_cutoff", "Specify the absolute log2 fold change cutoff", 0.5, min=0, max=5, step=0.1), height="150px"), 
+                        col_widths=12),), 
+                output_widget('volcano_plot')
+                )),
             id="tab",)
     ),     
     ui.nav_panel("2", "Page 2"),  
-    ui.nav_panel("3", "Page 3 content"),  
+    ui.nav_panel("3", "Page 3"),  
     title="Redox Plots",  
     id="page",  
     fillable = True, 
@@ -73,6 +80,54 @@ app_ui = ui.page_navbar(
 
 # Define the server logic
 def server(input, output, session):
+    @render_widget
+    def volcano_plot():
+        experiment = input["select_experiment_v"]()
+        measure = input["select_var_v"]()
+        log2fc_cutoff = input["log2fc_cutoff"]()
+        plot_title = "Volcano Plot for " + measure + " in experiment " + experiment
+        x_axis_title = "log2 fold change" 
+        y_axis_title = "-log10 pvalue" 
+        point_radius = 6
+        fig = go.Figure()
+        fig.update_layout(
+            title=plot_title,
+            xaxis_title= x_axis_title,
+            yaxis_title=y_axis_title,
+            paper_bgcolor= 'white',
+            plot_bgcolor='white',
+        )
+        colors = []
+        data = volcano_df[(volcano_df['experiment'] == experiment)]
+        log2fc = data[measure + '_log2fc'].tolist()
+        nlog10pv = data[measure + '_pvadj'].apply(lambda x: -np.log10(x)).tolist()
+        # assign color to each point
+        for i in range(0, len(log2fc)):
+            if nlog10pv[i] > 2:
+                if log2fc[i] > log2fc_cutoff:
+                    colors.append('#db3232')
+                elif log2fc[i] < log2fc_cutoff * -1:
+                    colors.append('#3f65d4')
+                else:
+                    colors.append('rgba(150,150,150,0.5)')
+            else:
+                colors.append('rgba(150,150,150,0.5)')
+        hover_text = [f'{row["cell_line"]}, {row["treatment"]}' for _, row in volcano_df.iterrows()]
+        fig.add_trace(
+            go.Scattergl(
+                x = log2fc,
+                y = nlog10pv,
+                mode = 'markers',
+                text = hover_text,
+                hovertemplate = volcano_df['cell_line'] + ', ' + volcano_df['treatment'] + '<extra></extra>',
+                marker= {
+                    'color':colors,
+                    'size':point_radius,
+                }
+            )
+        )
+        return fig
+
     
     
     # Reactive expression to filter the DataFrame based on the inputs
@@ -285,7 +340,7 @@ def server(input, output, session):
                 for treatment in treatments:
                     if isY == "measures":
                         cellline = cell_lines[0] if i == 0 else g2
-                        row = grouped_df[(grouped_df["experiment"] == experiment) & (grouped_df["treatment"] == treatment) & (grouped_df["cell_line"] == cellline)]
+                        row = grouped_df_norm[(grouped_df_norm["experiment"] == experiment) & (grouped_df_norm["treatment"] == treatment) & (grouped_df_norm["cell_line"] == cellline)]
                         if len(row) > 1 or len(row) == 0:
                             value = np.nan
                             error = np.nan
@@ -295,7 +350,7 @@ def server(input, output, session):
                         y_dict[y][0].append(value)
                         y_dict[y][1].append(error)
                     else:
-                        row = grouped_df[(grouped_df["experiment"] == experiment) & (grouped_df["treatment"] == treatment) & (grouped_df["cell_line"] == y)]
+                        row = grouped_df_norm[(grouped_df_norm["experiment"] == experiment) & (grouped_df_norm["treatment"] == treatment) & (grouped_df_norm["cell_line"] == y)]
                         if len(row) > 1 or len(row) == 0:
                             value = np.nan
                             error = np.nan
