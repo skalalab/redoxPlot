@@ -17,7 +17,7 @@ column_names = grouped_df.columns.tolist()[1:8]
 unique_values_dict = {col: grouped_df[col].unique().tolist() for col in column_names}
 experiments_treatment_dict = {name: group["treatment"].tolist() for name, group in grouped_df.groupby("experiment")}
 vars_colnames = ["na1_mean", "na2_mean","nt1_mean","nt2_mean","ntm_mean", "fa1_mean","fa2_mean","ft1_mean","ft2_mean","ftm_mean", "nint_mean", "fint_mean", "normrr_mean"]
-vars = [name.replace("_mean", "") for name in vars_colnames[:-1]] + ["rr"]
+vars = [name.replace("_mean", "") for name in vars_colnames]
 
 # generate colors for vars and cell lines
 cm = plt.get_cmap('tab20')
