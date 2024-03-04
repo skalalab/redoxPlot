@@ -112,14 +112,12 @@ def server(input, output, session):
                     colors.append('rgba(150,150,150,0.5)')
             else:
                 colors.append('rgba(150,150,150,0.5)')
-        hover_text = [f'{row["cell_line"]}, {row["treatment"]}' for _, row in volcano_df.iterrows()]
         fig.add_trace(
             go.Scattergl(
                 x = log2fc,
                 y = nlog10pv,
                 mode = 'markers',
-                text = hover_text,
-                hovertemplate = volcano_df['cell_line'] + ', ' + volcano_df['treatment'] + '<extra></extra>',
+                hovertemplate = data['cell_line'] + ', ' + data['treatment'] + '<extra></extra>',
                 marker= {
                     'color':colors,
                     'size':point_radius,
