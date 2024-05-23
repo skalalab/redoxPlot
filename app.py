@@ -9,15 +9,26 @@ from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 import plotly.express as px
 
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+import seaborn as sns
+
+df = pd.read_csv(Path(__file__).parent / "231214_normalized_cytoplasm_all.csv")
+measures = ["na1","na2","nt1","nt2","ntm","fa1","fa2","ft1","ft2","ftm","nint","fint","normrr"]
 grouped_df = pd.read_csv(Path(__file__).parent / "grouped_df.csv")
 grouped_df = grouped_df.rename(columns={grouped_df.columns[0]: 'id'})
 grouped_df_norm =  pd.read_csv(Path(__file__).parent / "grouped_norm.csv")
 volcano_df = pd.read_csv(Path(__file__).parent / "volcano.csv")
 column_names = grouped_df.columns.tolist()[1:8]
 unique_values_dict = {col: grouped_df[col].unique().tolist() for col in column_names}
-experiments_treatment_dict = {name: group["treatment"].tolist() for name, group in grouped_df.groupby("experiment")}
+experiments_treatment_dict = {name: group["treatment"].unique().tolist() for name, group in df.groupby("experiment")}
+experiments_cellline_dict = {name: group["cell_line"].unique().tolist() for name, group in df.groupby("experiment")}
+experiments_cancer_dict = {name: group["cancer"].unique().tolist() for name, group in df.groupby("experiment")}
+experiments_celltype_dict = {name: group["cell_type"].unique().tolist() for name, group in df.groupby("experiment")}
+experiments_media_dict = {name: group["media"].unique().tolist() for name, group in df.groupby("experiment")}
 vars_colnames = ["na1_mean", "na2_mean","nt1_mean","nt2_mean","ntm_mean", "fa1_mean","fa2_mean","ft1_mean","ft2_mean","ftm_mean", "nint_mean", "fint_mean", "normrr_mean"]
 vars = [name.replace("_mean", "") for name in vars_colnames]
+pca_filters = ["cell_line", "treatment", "cancer", "cell_type", "media"]
 
 # generate colors for vars and cell lines
 cm = plt.get_cmap('tab20')
@@ -68,6 +79,16 @@ app_ui = ui.page_navbar(
                         col_widths=12),), 
                 output_widget('volcano_plot')
                 )),
+            ui.nav_panel("PCA Plot", ui.layout_sidebar(
+                ui.sidebar(ui.layout_columns(
+                        ui.card(ui.input_selectize("select_experiment_pca", "Select experiment", unique_values_dict[column_names[3]], multiple=False), height="150px"),
+                        ui.card(ui.input_selectize("select_filter_pca", "Filtered by", pca_filters, multiple=False), height="100px"),
+                        ui.card(ui.input_selectize("filter_pca", None, [] , multiple=False), height="150px"),  
+                        ui.card(ui.input_selectize("color_pca", "Colored by", pca_filters, multiple=False), height="150px"),  
+                        ui.input_switch("loadings", "Show PC loadings?", False),
+                        col_widths=12),), 
+                ui.output_plot("plotPCA", width="100%", height="60%"), height="600px")
+                ),
             id="tab",)
     ),     
     ui.nav_panel("2", "Page 2"),  
@@ -80,6 +101,79 @@ app_ui = ui.page_navbar(
 
 # Define the server logic
 def server(input, output, session):
+    
+    @render.plot
+    def plotPCA(): 
+        experiment = input["select_experiment_pca"]()
+        filtered_by = input["select_filter_pca"]()
+        filter = input["filter_pca"]()
+        color_by = input["color_pca"]()
+        if filter is None or experiment is None or color_by is None or filtered_by is None:
+            return None
+        show_loadings = input["loadings"]()
+        num_plots = 1
+        if show_loadings:
+            num_plots = 2
+        fig, axes = plt.subplots(1, num_plots, figsize=(10/num_plots, 5))
+
+        subsetDF = df[(df["experiment"] == experiment) & (df[filtered_by] == filter)]
+        if subsetDF.empty:
+            return None
+        sd_df = StandardScaler().fit_transform(subsetDF[measures])
+        pca = PCA(n_components=2)
+        principalComponents = pca.fit_transform(sd_df)
+        principalDF = pd.DataFrame(data=principalComponents, columns=['PC1', 'PC2'])
+        subsetDF = subsetDF.reset_index(drop=True)
+        principalDF = pd.concat([principalDF, subsetDF[color_by]], axis=1)
+        treatments = principalDF[color_by].unique()
+       
+        if num_plots == 2:
+            loadings = pca.components_.T  # Transposing so each column corresponds to a PC
+            loadings_df = pd.DataFrame(loadings, columns=['PC1', 'PC2'], index=measures)
+            sns.heatmap(loadings_df, annot=True, cmap='coolwarm', center=0)
+            axes[1].set_title('Contribution of Original Variables to PCs', fontsize=10, fontweight='bold')
+            ax = axes[0]
+        else:
+            ax = axes
+
+        for t in treatments:
+            t_df = principalDF[principalDF[color_by] == t]
+            ax.scatter(t_df["PC1"],t_df["PC2"], label=t)
+        ax.legend()
+    
+        ax.set_xlabel(f'Principal Component 1: {round(pca.explained_variance_ratio_[0]*100, 2)}%')
+        ax.set_ylabel(f'Principal Component 2: {round(pca.explained_variance_ratio_[1]*100, 2)}%')
+        return fig
+    
+    # dynmaically update the filter options
+    @reactive.effect
+    def _():
+        filter_by = input["select_filter_pca"]()
+        experiment = input["select_experiment_pca"]()
+
+        if filter_by == "cell_line":
+            ui.update_selectize("filter_pca", choices=experiments_cellline_dict[experiment])
+        elif filter_by == "treatment":
+            ui.update_selectize("filter_pca", choices=experiments_treatment_dict[experiment])
+        elif filter_by == "cancer":
+            ui.update_selectize("filter_pca", choices=experiments_cancer_dict[experiment])
+        elif filter_by == "cell_type":
+            ui.update_selectize("filter_pca", choices=experiments_celltype_dict[experiment])
+        elif filter_by == "media":
+            ui.update_selectize("filter_pca", choices=experiments_media_dict[experiment])
+        else:
+            ui.update_selectize("filter_pca", choices=[])
+
+    @reactive.effect  
+    def _():
+        filter_by = input["select_filter_pca"]()
+        if filter_by:
+            color_by = pca_filters.copy()
+            color_by.remove(filter_by)
+            ui.update_selectize("color_pca", choices=color_by)
+
+
+
     @render_widget
     def volcano_plot():
         experiment = input["select_experiment_v"]()
