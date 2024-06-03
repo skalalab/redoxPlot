@@ -1,6 +1,8 @@
-#!/bin/sh
+#!/bin/bash
 ":" /* << "EOF"
 This file is a bash/node polyglot. This is needed for a few reasons:
+
+TODO: We don't support node < 18 anymore, so maybe we can remove this?
 
 1. In node 14 we must pass `--experimental-wasm-bigint`. In node >14 we cannot
 pass --experimental-wasm-bigint
@@ -21,6 +23,11 @@ inside the virtualenv the proper shell code is executed.
 EOF
 # bash
 set -e
+if [[ $1 == "-m" ]] && [[ $2 == "pip" ]]; then
+    # redirect python -m pip to execute in host environment
+    shift 1
+    exec $@
+fi
 
 which node > /dev/null  || { \
     >&2 echo "No node executable found on the path" && exit 1; \
@@ -28,17 +35,14 @@ which node > /dev/null  || { \
 
 ARGS=$(node -e "$(cat <<"EOF"
 const major_version = Number(process.version.split(".")[0].slice(1));
-if(major_version < 14) {
-    console.error("Need node version >= 14. Got node version", process.version);
+if(major_version < 18) {
+    console.error("Need node version >= 18. Got node version", process.version);
     process.exit(1);
 }
-if(major_version === 14){
-    process.stdout.write("--experimental-wasm-bigint");
-} else {
-    // If $ARGS is empty, `let args = process.argv.slice(2)` removes the wrong
-    // number of arguments. `ARGS=--` is not empty but does nothing.
-    process.stdout.write("--");
-}
+
+// If $ARGS is empty, `let args = process.argv.slice(2)` removes the wrong
+// number of arguments. `ARGS=--` is not empty but does nothing.
+process.stdout.write("--");
 EOF
 )")
 
@@ -57,7 +61,7 @@ const fs = require("fs");
  * names it is possible this could break. The most surprising one here is tmp, I
  * am not sure why but if we link tmp then the process silently fails.
  */
-function nativeDirsToLink() {
+function rootDirsToMount() {
     const skipDirs = ["dev", "lib", "proc", "tmp"];
     return fs
         .readdirSync("/")
@@ -65,15 +69,19 @@ function nativeDirsToLink() {
         .map((dir) => "/" + dir);
 }
 
+function dirsToMount() {
+    extra_mounts = process.env["_PYODIDE_EXTRA_MOUNTS"] || "";
+    return rootDirsToMount().concat(extra_mounts.split(":").filter(s => s))
+}
+
 async function main() {
     let args = process.argv.slice(2);
-    const _node_mounts = nativeDirsToLink();
     try {
         py = await loadPyodide({
             args,
+            env: Object.assign({}, process.env, {HOME: process.cwd() }),
             fullStdLib: false,
-            _node_mounts,
-            homedir: process.cwd(),
+            _node_mounts: dirsToMount(),
             // Strip out messages written to stderr while loading
             // After Pyodide is loaded we will replace stdstreams with setupStreams.
             stderr(e) {

@@ -10,10 +10,11 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
 import seaborn as sns
 
-df = pd.read_csv(Path(__file__).parent / "231214_normalized_cytoplasm_all.csv")
+df = pd.read_csv(Path(__file__).parent / "231214_cytoplasm_all.csv")
 measures = ["na1","na2","nt1","nt2","ntm","fa1","fa2","ft1","ft2","ftm","nint","fint","normrr"]
 grouped_df = pd.read_csv(Path(__file__).parent / "grouped_df.csv")
 grouped_df = grouped_df.rename(columns={grouped_df.columns[0]: 'id'})
@@ -89,6 +90,16 @@ app_ui = ui.page_navbar(
                         col_widths=12),), 
                 ui.output_plot("plotPCA", width="100%", height="60%"), height="600px")
                 ),
+            ui.nav_panel("t-SNE Plot", ui.layout_sidebar(
+                ui.sidebar(ui.layout_columns(
+                        ui.card(ui.input_selectize("select_experiment_tsne", "Select experiment", unique_values_dict[column_names[3]], multiple=False), height="150px"),
+                        ui.card(ui.input_selectize("select_filter_tsne", "Filtered by", pca_filters, multiple=False), height="100px"),
+                        ui.card(ui.input_selectize("filter_tsne", None, [] , multiple=False), height="150px"),  
+                        ui.card(ui.input_selectize("color_tsne", "Colored by", pca_filters, multiple=False), height="150px"),  
+                        ui.input_numeric("perplexity", "Perplexity", 20, min=0, step=10),
+                        col_widths=12),), 
+                ui.output_plot("plotTSNE", width="100%", height="60%"), height="600px")
+                ),
             id="tab",)
     ),     
     ui.nav_panel("2", "Page 2"),  
@@ -145,6 +156,37 @@ def server(input, output, session):
         ax.set_ylabel(f'Principal Component 2: {round(pca.explained_variance_ratio_[1]*100, 2)}%')
         return fig
     
+    @render.plot
+    def plotTSNE(): 
+        experiment = input["select_experiment_tsne"]()
+        filtered_by = input["select_filter_tsne"]()
+        filter = input["filter_tsne"]()
+        color_by = input["color_tsne"]()
+        if filter is None or experiment is None or color_by is None or filtered_by is None:
+            return None
+        perplexity = input["perplexity"]()
+        fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+
+        subsetDF = df[(df["experiment"] == experiment) & (df[filtered_by] == filter)]
+        if subsetDF.empty:
+            return None
+        sd_df = StandardScaler().fit_transform(subsetDF[measures])
+        tsne = TSNE(n_components=2, perplexity=perplexity)
+        tsneDF = pd.DataFrame(data=tsne.fit_transform(sd_df), columns=['t-SNE1', 't-SNE2'])
+        subsetDF = subsetDF.reset_index(drop=True)
+        tsneDF = pd.concat([tsneDF, subsetDF[color_by]], axis=1)
+        treatments = tsneDF[color_by].unique()
+       
+
+        for t in treatments:
+            t_df = tsneDF[tsneDF[color_by] == t]
+            ax.scatter(t_df["t-SNE1"],t_df["t-SNE2"], label=t)
+        ax.legend()
+    
+        ax.set_xlabel(f't-SNE Component 1')
+        ax.set_ylabel(f't-SNE Component 2')
+        return fig
+    
     # dynmaically update the filter options
     @reactive.effect
     def _():
@@ -163,6 +205,25 @@ def server(input, output, session):
             ui.update_selectize("filter_pca", choices=experiments_media_dict[experiment])
         else:
             ui.update_selectize("filter_pca", choices=[])
+
+    # dynmaically update the filter options
+    @reactive.effect
+    def _():
+        filter_by = input["select_filter_tsne"]()
+        experiment = input["select_experiment_tsne"]()
+
+        if filter_by == "cell_line":
+            ui.update_selectize("filter_tsne", choices=experiments_cellline_dict[experiment])
+        elif filter_by == "treatment":
+            ui.update_selectize("filter_tsne", choices=experiments_treatment_dict[experiment])
+        elif filter_by == "cancer":
+            ui.update_selectize("filter_tsne", choices=experiments_cancer_dict[experiment])
+        elif filter_by == "cell_type":
+            ui.update_selectize("filter_tsne", choices=experiments_celltype_dict[experiment])
+        elif filter_by == "media":
+            ui.update_selectize("filter_tsne", choices=experiments_media_dict[experiment])
+        else:
+            ui.update_selectize("filter_tsne", choices=[])
 
     @reactive.effect  
     def _():
