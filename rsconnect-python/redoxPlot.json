@@ -1,0 +1,12 @@
+{
+    "https://api.shinyapps.io": {
+        "server_url": "https://api.shinyapps.io",
+        "filename": "/Users/allan/GitHub/redoxPlot",
+        "app_url": "https://allanware.shinyapps.io/redoxplot/",
+        "app_id": 13256377,
+        "app_guid": null,
+        "title": "redoxPlot",
+        "app_mode": "python-shiny",
+        "app_store_version": 1
+    }
+}
