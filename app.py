@@ -1,6 +1,7 @@
 from shiny import App, ui, render, reactive
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_hex
 import numpy as np
 from htmltools import HTML
 from pathlib import Path
@@ -12,6 +13,8 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
 import seaborn as sns
+from plotly.subplots import make_subplots
+import plotly.io as pio
 
 df = pd.read_csv(Path(__file__).parent / "240710_cytoplasm_all-QC.csv")
 measures = ["na1","na2","nt1","nt2","ntm","fa1","fa2","ft1","ft2","ftm","nint","fint","normrr"]
@@ -87,11 +90,12 @@ app_ui = ui.page_navbar(
                         ui.card(ui.input_selectize("select_filter_pca", "Filtered by", pca_filters + ["Nothing"], multiple=False), height="100px"),
                         ui.card(ui.input_selectize("filter_pca", None, [] , multiple=False), height="150px"),  
                         ui.card(ui.input_selectize("color_pca", "Colored by", pca_filters, multiple=False), height="150px"),  
+                        ui.card(ui.input_checkbox_group("select_color_pca", "", []), height="150px"),  
                         ui.input_switch("nadh_vs_full", "All vs NADPH", False),
                         ui.input_switch("fad_vs_full", "All vs FAD", False),
                         ui.input_switch("loadings", "Show PC loadings?", False),
-                        col_widths=12),), 
-                ui.output_plot("plotPCA", width="100%", height="60%"), height="600px")
+                        col_widths=12), width=350 ), 
+                output_widget("plotPCA"), height="600px")
                 ),
             ui.nav_panel("UMAP Plot", ui.layout_sidebar(
                 ui.sidebar(ui.layout_columns(
@@ -170,72 +174,229 @@ def server(input, output, session):
         previous_states_umap["nadh_vs_full_umap"] = input.nadh_vs_full_umap()
         previous_states_umap["fad_vs_full_umap"] = input.fad_vs_full_umap()
 
-    @render.plot
+    # dynmaically update the filter options
+    @reactive.effect
+    def _():
+        filter_by = input["select_filter_pca"]()
+        experiment = input["select_experiment_pca"]()
+
+        if filter_by == "cell_line":
+            ui.update_selectize("filter_pca", choices=experiments_cellline_dict[experiment])
+        elif filter_by == "treatment":
+            ui.update_selectize("filter_pca", choices=experiments_treatment_dict[experiment])
+        elif filter_by == "cancer":
+            ui.update_selectize("filter_pca", choices=experiments_cancer_dict[experiment])
+        elif filter_by == "cell_type":
+            ui.update_selectize("filter_pca", choices=experiments_celltype_dict[experiment])
+        elif filter_by == "media":
+            ui.update_selectize("filter_pca", choices=experiments_media_dict[experiment])
+        else:
+            ui.update_selectize("filter_pca", choices=[])
+        if filter_by != "Nothing":
+            color_by = pca_filters.copy()
+            color_by.remove(filter_by)
+            ui.update_selectize("color_pca", choices=color_by)
+        else: 
+            ui.update_selectize("color_pca", choices=pca_filters)
+
+    @render_widget
     def plotPCA(): 
+        pio.validate = True
         experiment = input["select_experiment_pca"]()
         filtered_by = input["select_filter_pca"]()
         filter = input["filter_pca"]()
         color_by = input["color_pca"]()
+        color_groups = input["select_color_pca"]()
         if filter is None or experiment is None or color_by is None or filtered_by is None:
             return None
         show_loadings = input["loadings"]()
         show_nadh = input["nadh_vs_full"]()
-        show_fadh = input["fad_vs_full"]()
+        show_fad = input["fad_vs_full"]()
+
         num_plots = 1
-        if show_loadings or show_nadh or show_fadh:
+        if show_loadings or show_nadh or show_fad:
             num_plots = 2
-        fig, axes = plt.subplots(1, num_plots, figsize=(10/num_plots, 5))
+
+        # Filter the DataFrame
         if filtered_by == "Nothing":
             subsetDF = df[df["experiment"] == experiment]
         else: 
             subsetDF = df[(df["experiment"] == experiment) & (df[filtered_by] == filter)]
+           
+           
+        if show_fad: 
+            plot2_title = "FAD PCA Plot"
+        elif show_nadh:
+            plot2_title = "NADH PCA Plot"
+        elif show_loadings:
+            plot2_title = "PC Loadings" 
+
+        fig = make_subplots(
+            rows=1,
+            cols=num_plots,
+            subplot_titles=["All Vars PCA Plot", plot2_title] if num_plots == 2 else ["PCA Plot"],
+            horizontal_spacing=0.05  # Adjust space between subplots
+        )
         if subsetDF.empty:
-            return None
+            return fig
+            raise ValueError("No data to display for the selected filters.")
+
+        # Perform PCA
         sd_df = StandardScaler().fit_transform(subsetDF[measures])
         pca = PCA(n_components=2)
         principalComponents = pca.fit_transform(sd_df)
         principalDF = pd.DataFrame(data=principalComponents, columns=['PC1', 'PC2'])
+        principalDF = pd.concat([principalDF, subsetDF[[color_by, "base_name"]].reset_index(drop=True)], axis=1)
+        principalDF["base_name"] = principalDF["base_name"].fillna("missing base name")
+        # Unified colors across plots
+        palette = sns.color_palette("tab10", n_colors=len(color_groups))
+        color_sequence = [f"rgba({int(color[0]*255)}, {int(color[1]*255)}, {int(color[2]*255)}, 0.6)" for color in palette]
+        color_map = {t: color_sequence[i] for i, t in enumerate(color_groups)}
 
-       
+        # Plot the main PCA scatter plot
+        for t in color_groups:
+            t_df = principalDF[principalDF[color_by] == t]
+            fig.add_trace(
+                go.Scatter(
+                    x=t_df["PC1"],
+                    y=t_df["PC2"],
+                    mode='markers',
+                    name=f'{t}',
+                    text=t_df["base_name"],
+                    hovertemplate="<b>%{text}</b>",
+                    marker=dict(color=color_map[t])
+                ),
+                row=1,
+                col=1
+            )
+
+        # Customize the layout for the first plot
+        fig.update_xaxes(
+            title_text=f'Principal Component 1: {round(pca.explained_variance_ratio_[0] * 100, 2)}%',
+            row=1,
+            col=1
+        )
+        fig.update_yaxes(
+            title_text=f'Principal Component 2: {round(pca.explained_variance_ratio_[1] * 100, 2)}%',
+            row=1,
+            col=1
+        )
+
+        # Add the second plot if needed
         if num_plots == 2:
-            if show_loadings: 
-                loadings = pca.components_.T  # Transposing so each column corresponds to a PC
+            if show_loadings:
+                # Create a loading plot
+                loadings = pca.components_.T
                 loadings_df = pd.DataFrame(loadings, columns=['PC1', 'PC2'], index=measures)
-                sns.heatmap(loadings_df, annot=True, cmap='coolwarm', center=0)
-                axes[1].set_title('Contribution of Original Variables to PCs', fontsize=10, fontweight='bold')
+                
+                for i, row in loadings_df.iterrows():
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[0, row['PC1']],
+                            y=[0, row['PC2']],
+                            mode='lines+text',
+                            text=[i],
+                            textposition="top right",
+                            name=f'Loading - {i}'
+                        ),
+                        row=1,
+                        col=2
+                    )
             else:
+                # Perform NADH/FAD PCA if applicable
                 partial_measure = nadh_measures if show_nadh else fadh_measures
                 partial_sd_df = StandardScaler().fit_transform(subsetDF[partial_measure])
                 partial_pca = PCA(n_components=2)
                 partial_principalComponents = partial_pca.fit_transform(partial_sd_df)
                 partial_principalDF = pd.DataFrame(data=partial_principalComponents, columns=['PC1', 'PC2'])
-                subsetDF = subsetDF.reset_index(drop=True)
-                partial_principalDF  = pd.concat([partial_principalDF, subsetDF[color_by]], axis=1)
-                treatments = partial_principalDF[color_by].unique()
-                for t in treatments:
+                partial_principalDF = pd.concat([partial_principalDF, subsetDF[[color_by, "base_name"]].reset_index(drop=True)], axis=1)
+                
+                # Add traces for partial PCA
+                for t in color_groups:
                     t_df = partial_principalDF[partial_principalDF[color_by] == t]
-                    axes[1].scatter(t_df["PC1"],t_df["PC2"], label=t)
-                axes[1].legend()
-            
-                axes[1].set_xlabel(f'Principal Component 1: {round(partial_pca.explained_variance_ratio_[0]*100, 2)}%')
-                axes[1].set_ylabel(f'Principal Component 2: {round(partial_pca.explained_variance_ratio_[1]*100, 2)}%')
+                    fig.add_trace(
+                        go.Scatter(
+                            x=t_df["PC1"],
+                            y=t_df["PC2"],
+                            mode='markers',
+                            name=f'{t}',
+                            text=t_df["base_name"],
+                            hovertemplate="<b>%{text}</b>",
+                            marker=dict(color=color_map[t]),
+                            showlegend=False
+                        ),
+                        row=1,
+                        col=2
+                    )
 
-            ax = axes[0]
-        else:
-            ax = axes
+                # Customize the layout for the second plot
+                fig.update_xaxes(
+                    title_text=f'Principal Component 1: {round(partial_pca.explained_variance_ratio_[0] * 100, 2)}%',
+                    row=1,
+                    col=2
+                )
+                fig.update_yaxes(
+                    title_text=f'Principal Component 2: {round(partial_pca.explained_variance_ratio_[1] * 100, 2)}%',
+                    row=1,
+                    col=2
+                )
 
-        if not show_nadh or not show_fadh:
-            subsetDF = subsetDF.reset_index(drop=True)
-        principalDF = pd.concat([principalDF, subsetDF[color_by]], axis=1)
-        treatments = principalDF[color_by].unique()
-        for t in treatments:
-            t_df = principalDF[principalDF[color_by] == t]
-            ax.scatter(t_df["PC1"],t_df["PC2"], label=t)
-        ax.legend()
-    
-        ax.set_xlabel(f'Principal Component 1: {round(pca.explained_variance_ratio_[0]*100, 2)}%')
-        ax.set_ylabel(f'Principal Component 2: {round(pca.explained_variance_ratio_[1]*100, 2)}%')
         return fig
+        # num_plots = 1
+        # if show_loadings or show_nadh or show_fadh:
+        #     num_plots = 2
+        # # fig, axes = plt.subplots(1, num_plots, figsize=(10/num_plots, 5))
+        # if filtered_by == "Nothing":
+        #     subsetDF = df[df["experiment"] == experiment]
+        # else: 
+        #     subsetDF = df[(df["experiment"] == experiment) & (df[filtered_by] == filter)]
+        # if subsetDF.empty:
+        #     return None
+        # sd_df = StandardScaler().fit_transform(subsetDF[measures])
+        # pca = PCA(n_components=2)
+        # principalComponents = pca.fit_transform(sd_df)
+        # principalDF = pd.DataFrame(data=principalComponents, columns=['PC1', 'PC2'])
+
+       
+        # if num_plots == 2:
+        #     if show_loadings: 
+        #         loadings = pca.components_.T  # Transposing so each column corresponds to a PC
+        #         loadings_df = pd.DataFrame(loadings, columns=['PC1', 'PC2'], index=measures)
+        #         sns.heatmap(loadings_df, annot=True, cmap='coolwarm', center=0)
+        #         axes[1].set_title('Contribution of Original Variables to PCs', fontsize=10, fontweight='bold')
+        #     else:
+        #         partial_measure = nadh_measures if show_nadh else fadh_measures
+        #         partial_sd_df = StandardScaler().fit_transform(subsetDF[partial_measure])
+        #         partial_pca = PCA(n_components=2)
+        #         partial_principalComponents = partial_pca.fit_transform(partial_sd_df)
+        #         partial_principalDF = pd.DataFrame(data=partial_principalComponents, columns=['PC1', 'PC2'])
+        #         subsetDF = subsetDF.reset_index(drop=True)
+        #         partial_principalDF  = pd.concat([partial_principalDF, subsetDF[color_by]], axis=1)
+        #         treatments = partial_principalDF[color_by].unique()
+        #         for t in treatments:
+        #             t_df = partial_principalDF[partial_principalDF[color_by] == t]
+        #             axes[1].scatter(t_df["PC1"],t_df["PC2"], label=t)
+        #         axes[1].legend()
+            
+        #         axes[1].set_xlabel(f'Principal Component 1: {round(partial_pca.explained_variance_ratio_[0]*100, 2)}%')
+        #         axes[1].set_ylabel(f'Principal Component 2: {round(partial_pca.explained_variance_ratio_[1]*100, 2)}%')
+
+        #     ax = axes[0]
+        # else:
+        #     ax = axes
+
+        # if not show_nadh or not show_fadh:
+        #     subsetDF = subsetDF.reset_index(drop=True)
+        # principalDF = pd.concat([principalDF, subsetDF[color_by]], axis=1)
+        # treatments = principalDF[color_by].unique()
+        # for t in treatments:
+        #     t_df = principalDF[principalDF[color_by] == t]
+        #     ax.scatter(t_df["PC1"],t_df["PC2"], label=t)
+        # ax.legend()
+    
+        # ax.set_xlabel(f'Principal Component 1: {round(pca.explained_variance_ratio_[0]*100, 2)}%')
+        # ax.set_ylabel(f'Principal Component 2: {round(pca.explained_variance_ratio_[1]*100, 2)}%')
+        # return fig
     
     @render.plot
     def plotUMAP(): 
@@ -353,6 +514,25 @@ def server(input, output, session):
             ui.update_selectize("color_pca", choices=color_by)
         else: 
             ui.update_selectize("color_pca", choices=pca_filters)
+    
+    @reactive.effect  
+    def _():
+        color_by = input["color_pca"]()
+        filtered_by = input["select_filter_pca"]()
+        experiment = input["select_experiment_pca"]()
+        filter = input["filter_pca"]()
+
+        if color_by == None or filtered_by == None or experiment == None:
+             ui.update_checkbox_group("select_color_pca", choices=[])
+
+        else: 
+            if filtered_by == "Nothing":
+                color_groups = df[df["experiment"] == experiment][color_by].unique()
+            else:
+                color_groups = df[(df["experiment"] == experiment) & (df[filtered_by] == filter)][color_by].unique()
+            ui.update_checkbox_group("select_color_pca", choices=color_groups.tolist(), selected=color_groups.tolist())
+
+        
 
     
     @reactive.effect  
