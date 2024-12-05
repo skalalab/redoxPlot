@@ -310,7 +310,7 @@ def server(input, output, session):
                 partial_principalComponents = partial_pca.fit_transform(partial_sd_df)
                 partial_principalDF = pd.DataFrame(data=partial_principalComponents, columns=['PC1', 'PC2'])
                 partial_principalDF = pd.concat([partial_principalDF, subsetDF[[color_by, "base_name"]].reset_index(drop=True)], axis=1)
-                
+                partial_principalDF["base_name"] = partial_principalDF["base_name"].fillna("missing base name")
                 # Add traces for partial PCA
                 for t in color_groups:
                     t_df = partial_principalDF[partial_principalDF[color_by] == t]
