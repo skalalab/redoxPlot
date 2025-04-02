@@ -7,3 +7,4 @@ sdtfile
 streamlit-plotly-events==0.0.6
 statannotations 
 tifffile
+scipy
