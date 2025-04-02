@@ -5,23 +5,25 @@ from plotly.subplots import make_subplots
 from plotly import graph_objects as go
 import seaborn as sns
 mito_df = pd.read_csv('merged_mito_df.csv')
+mito_lifetime_df = pd.read_csv('tmre_lifetime.csv')
 
-mito_features = mito_df.columns.tolist()
-# remove columns that are not numerical
-mito_features = [col for col in mito_features if pd.api.types.is_numeric_dtype(mito_df[col])]
-
-mito_lifetime_features = [] + mito_features
+lifetime_features = ['na1', 'na2', 'nt1', 'nt2', 'ntm', 'fa1',
+                     'fa2', 'ft1', 'ft2', 'ftm', 'nint', 'fint', 'normrr']
+mito_features = ['mito_area', 'mito_intensity_sum', 'mito_intensity_avg', 'nuclei_area',
+                'nuclei_intensity_sum', 'nuclei_intensity_avg', 'Delta Psi 1',
+                'cell_area', 'mito_content']
+mito_lifetime_features = lifetime_features + mito_features
 from filter_widgets import filters_widget
 import streamlit as st
 st.set_page_config(layout="wide", initial_sidebar_state="collapsed")
 col1, col2 = st.columns([1, 2.5])
 with col1:
     method = st.selectbox(  
-        "Select a visualization method", ["Mito Features Correlation", "Heatmap"])
+        "Select a visualization method", ["Mito Features Correlation", "Heatmap", "Lifetime-Mito Features Correlation"])
     
     features = mito_lifetime_features if "Lifetime" in method else mito_features
     df = mito_df
-    if method == "Mito Features Correlation":
+    if method == "Mito Features Correlation" or method == "Lifetime-Mito Features Correlation":
         st.write("Select features to correlate")
     
         # create two single select widgets for feature selection: Select X and Select Y
@@ -86,3 +88,76 @@ with col2:
             # render the heatmap in Streamlit
             st.pyplot(fig)
             plt.close(fig)
+
+    elif method == "Lifetime-Mito Features Correlation":
+        if selected_x and selected_y:
+            # plot correlation between selected_x and selected_y
+            # calculate correlation coefficient and p-value
+            # Extract feature names without the 'std_' prefix
+            x_base = selected_x
+            y_base = selected_y
+            
+            # Check if std columns exist
+            # Add controls for error bars
+            col_err1, col_err2 = st.columns(2)
+            with col_err1:
+                show_x_error = st.checkbox("Show X error bars", value=False)
+            with col_err2:
+                show_y_error = st.checkbox("Show Y error bars", value=True)
+            
+            # Check if std columns exist
+            x_std_col = f"{selected_x}_std" if f"{selected_x}_std" in mito_lifetime_df.columns and show_x_error else None
+            y_std_col = f"{selected_y}_std" if f"{selected_y}_std" in mito_lifetime_df.columns and show_y_error else None
+            
+            corr_coef, p_value = stats.pearsonr(mito_lifetime_df[selected_x], mito_lifetime_df[selected_y])
+            # create scatter plot with color_by_options
+            mito_lifetime_df['unique_color_group'] = mito_lifetime_df[["cell_line", "treatment"]].agg('_'.join, axis=1)
+            unique_color_groups = mito_lifetime_df['unique_color_group'].unique()
+            alpha = 1.0
+            palette = sns.color_palette("tab20", n_colors=len(unique_color_groups))
+            color_sequence = [f"rgba({int(color[0]*255)}, {int(color[1]*255)}, {int(color[2]*255)}, {alpha})" for color in palette]
+            color_map = {t: color_sequence[i] for i, t in enumerate(unique_color_groups)}
+            
+            fig = make_subplots(rows=1, cols=1)
+            for group in unique_color_groups:
+                group_df = mito_lifetime_df[mito_lifetime_df['unique_color_group'] == group]
+                
+                # Add scatter plot
+                fig.add_trace(go.Scatter(
+                    x=group_df[selected_x],
+                    y=group_df[selected_y],
+                    mode='markers',
+                    marker=dict(
+                        color=color_map[group],
+                        size=5
+                    ),
+                    error_x=dict(
+                        type='data',
+                        array=group_df[x_std_col] if x_std_col else None,
+                        visible=True if x_std_col else False,
+                        color=color_map[group],
+                        thickness=1,
+                        width=3
+                    ),
+                    error_y=dict(
+                        type='data',
+                        array=group_df[y_std_col] if y_std_col else None,
+                        visible=True if y_std_col else False,
+                        color=color_map[group],
+                        thickness=1,
+                        width=3
+                    ),
+                    name=group
+                ))
+
+            # add correlation coefficient and p-value to the plot
+            fig.add_annotation(text=f"Correlation coefficient: {corr_coef:.2f}<br>P-value: {p_value:.2e}", xref="paper", yref="paper", x=0.5, y=1.05, showarrow=False)
+            # update layout
+            fig.update_layout(
+                title=f"Correlation between {selected_x} and {selected_y}", 
+                xaxis_title=selected_x, 
+                yaxis_title=selected_y
+            )
+            # show plot
+            st.plotly_chart(fig, use_container_width=True)
+            

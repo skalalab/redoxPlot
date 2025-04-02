@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-categorical_cols = ["cell_line", "treatment"]
+categorical_cols = ["cell_type", "cell_line", "treatment"]
 # Generic callback function to handle "All" logic
 def update_multiselect(key, options):
     # Get the current selection from session state
