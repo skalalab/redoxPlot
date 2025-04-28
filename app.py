@@ -4,7 +4,8 @@ import numpy as np
 from plotly.subplots import make_subplots
 from plotly import graph_objects as go
 import seaborn as sns
-mito_df = pd.read_csv('merged_mito_df.csv')
+from joint_space import create_latent_space
+mito_df = pd.read_csv('tmre_df.csv')
 mito_lifetime_df = pd.read_csv('tmre_lifetime.csv')
 
 lifetime_features = ['na1', 'na2', 'nt1', 'nt2', 'ntm', 'fa1',
@@ -19,12 +20,17 @@ st.set_page_config(layout="wide", initial_sidebar_state="collapsed")
 col1, col2 = st.columns([1, 2.5])
 with col1:
     method = st.selectbox(  
-        "Select a visualization method", ["Mito Features Correlation", "Heatmap", "Lifetime-Mito Features Correlation"])
+        "Select a visualization method", ["Mito Features Correlation", "Heatmap", "Lifetime-Mito Features Correlation", "Joint UMAP"])
     
     features = mito_lifetime_features if "Lifetime" in method else mito_features
     df = mito_df
     if method == "Mito Features Correlation" or method == "Lifetime-Mito Features Correlation":
         st.write("Select features to correlate")
+
+        if method == "Lifetime-Mito Features Correlation":
+            # filter out the lifetime features
+            df = mito_lifetime_df
+            features = mito_lifetime_features
     
         # create two single select widgets for feature selection: Select X and Select Y
         # default to be the first feature in the list
@@ -33,8 +39,47 @@ with col1:
         selected_y = st.selectbox("Select Y", [feature for feature in features if feature != selected_x], index=0)
     elif method == "Heatmap":
         pass
+    elif method == "Joint UMAP":
+        # upload two csv files
+        tmre_df = st.file_uploader("Upload tmre feature dataset", type="csv")
+        tmre_df = pd.read_csv(tmre_df) if tmre_df is not None else None
+        lifetime_df = st.file_uploader("Upload lifetime feature dataset", type="csv")
+        lifetime_df = pd.read_csv(lifetime_df) if lifetime_df is not None else None
+    #     col1, col2 = st.columns(2)
+    # # First number incrementor in the first column
+    #     with col1:
+        n_neighbors = st.number_input(
+            "n_neighbors",
+            value=15,  # Initial value
+            step=5,             # Increment/Decrement step
+            format="%d"            # Integer format
+        )
+        # Second number incrementor in the second column
+        # with col2:
+        min_dist = st.number_input(
+            "min_dist",
+            value=0.1,  # Initial value
+            step=0.1,            
+        )
+        latent_space_method = st.selectbox(
+            "Select a latent space method", [ "SCOT"])
 with col2:
-    filtered_df, color_by_options, cols = filters_widget(df, wildcard=True)
+    if method == "Joint UMAP": 
+        if tmre_df is not None and lifetime_df is not None:
+            filtered_tmre_df, color_by_options = filters_widget(tmre_df, wildcard=True)
+            available_cell_types = filtered_tmre_df["cell_type"].unique()
+            available_cell_lines = filtered_tmre_df["cell_line"].unique()
+            available_treatments = filtered_tmre_df["treatment"].unique()
+            # use this to filter the lifetime_df
+            filtered_lifetime_df = lifetime_df[
+                (lifetime_df["cell_type"].isin(available_cell_types)) &
+                (lifetime_df["cell_line"].isin(available_cell_lines)) &
+                (lifetime_df["treatment"].isin(available_treatments))
+            ]
+            # create a joint latent space
+            latent_space_matrix = create_latent_space(tmre_df, lifetime_df, method=latent_space_method)
+    else: 
+        filtered_df, color_by_options = filters_widget(df, wildcard=True)
     if method == "Mito Features Correlation":
         if not filtered_df.empty and selected_x and selected_y:
             # create a scatter plot of the selected features with correlation coefficient and p-value
@@ -108,7 +153,7 @@ with col2:
             # Check if std columns exist
             x_std_col = f"{selected_x}_std" if f"{selected_x}_std" in mito_lifetime_df.columns and show_x_error else None
             y_std_col = f"{selected_y}_std" if f"{selected_y}_std" in mito_lifetime_df.columns and show_y_error else None
-            
+            # add those std columns to filtered_df
             corr_coef, p_value = stats.pearsonr(mito_lifetime_df[selected_x], mito_lifetime_df[selected_y])
             # create scatter plot with color_by_options
             mito_lifetime_df['unique_color_group'] = mito_lifetime_df[["cell_line", "treatment"]].agg('_'.join, axis=1)
@@ -160,4 +205,5 @@ with col2:
             )
             # show plot
             st.plotly_chart(fig, use_container_width=True)
-            
+    elif method == "Joint UMAP":
+        pass

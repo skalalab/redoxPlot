@@ -75,4 +75,4 @@ def filters_widget(df, wildcard=True, wildCardSelectText="Color by"):
     else:
         wildcard_options = []
 
-    return filtered_df, wildcard_options, cols
+    return filtered_df, wildcard_options
