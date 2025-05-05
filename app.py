@@ -70,12 +70,15 @@ with col2:
             available_cell_types = filtered_tmre_df["cell_type"].unique()
             available_cell_lines = filtered_tmre_df["cell_line"].unique()
             available_treatments = filtered_tmre_df["treatment"].unique()
+             # lifetime_df has Panc1, remove it 
+            lifetime_df = lifetime_df[lifetime_df["cell_line"] != "Panc1"]
             # use this to filter the lifetime_df
             filtered_lifetime_df = lifetime_df[
                 (lifetime_df["cell_type"].isin(available_cell_types)) &
                 (lifetime_df["cell_line"].isin(available_cell_lines)) &
                 (lifetime_df["treatment"].isin(available_treatments))
             ]
+           
             # create a joint latent space
             latent_space_matrix = create_latent_space(tmre_df, lifetime_df, method=latent_space_method)
     else: 
